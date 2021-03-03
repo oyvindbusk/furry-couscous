@@ -5,6 +5,8 @@ import httplib2 as http
 import json
 import time
 import os
+import pandas as pd
+pd.options.mode.chained_assignment = None
 try:
     from urlparse import urlparse
 except ImportError:
@@ -38,10 +40,12 @@ class Main_method:
     '''
     def __init__(self):
         self.genelist = args.genelist
+        self.name = args.name
         self.genes = self.read_genes()
         self.genecount = len(self.genes)
         self.duplicates = self.find_duplicates()
-        
+        self.refseq = "downloads/RefseqSelect_GRCh37.txt"
+        self.notfound = []
     
     def run_query(self, gene):
         headers = {'Accept': 'application/json',}
@@ -61,25 +65,11 @@ class Main_method:
                 return (gene, data['response']['docs'][0]['hgnc_id'])
             else:
                 notfound.append(gene)
-
-            #print 'Symbol:' + data['response']['docs'][0]['symbol']
+                self.notfound.append(gene)
         else:
             print 'Error detected: ' + response['status']
-
         if len(notfound) != 0:
-            print "Some genes were not found in the database: %s" % (','.join(notfound))
-
-
-
-
-
-
-
-
-
-
-
-
+            print "!! %s were not found in the database." % (','.join(notfound))
 
     def limit_query(self):
         ''' Runs query trough this because of server load limit'''
@@ -88,24 +78,9 @@ class Main_method:
             geneIDList.append(g.run_query(gene))
             if count % 3 == 0:
                 time.sleep(1)
-        
+        if len(self.notfound) != 0:
+            print "The following genes were not found in the database: %s" % (','.join(self.notfound))
         return [gene for gene in geneIDList if gene] 
-
-    def get_bed(self, gene):
-        ''' query bed regions for each gene    ''' 
-        headers = {'Accept': 'application/json',}
-        uri = 'http://mygene.info'
-        path = '/v3/gene/' + gene
-        method = 'GET'
-        target = urlparse(uri+path)
-        body = ''
-        h = http.Http()
-        response, content = h.request(target.geturl(),method,body,headers)
-        if response['status'] == '200':
-        # parse content with the json module 
-            data = json.loads(content)
-            print json.dumps(data['exons_hg19'], indent=4, sort_keys=True)
-
 
     def read_genes(self):
         genes = []
@@ -119,43 +94,73 @@ class Main_method:
         ''' Find duplicates in gene list: '''
         return [item for item, count in collections.Counter(self.genes).items() if count > 1]
 
-    def make_downloads(self):
-        ''' Make folder and download files needed for exons '''
-        try:
-            os.makedirs('downloads')
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-        if path.exists("downloads")
+    def explode_df(self, df):
+        ''' 
+        Takes the exonstarts and exonends fields, and splits them up one for each row:
+        '''
+        
+        listOfTuples = []
+        for index, row in df.iterrows():
+            for c, (i,j) in enumerate(zip(row['exonStarts'].split(',')[:-1], row['exonEnds'].split(',')[:-1])):
+                listOfTuples.append(tuple(row[0:2]) + (row[2].replace('chr', ''), ) + tuple(row[3:8]) + (1, i , j) + (row[11],row[12]+'_E' + str(c + 1)) + tuple(row[13:15])+ (row[15].split(',')[c],))
+        return pd.DataFrame(listOfTuples, columns = df.columns)
+
+    def format_to_bed(self, df):
+        ''' Formats df into bed format and adds 10 pb on each interval'''
+        return df[['chrom','exonStarts','exonEnds','name','score','strand']]
+
+    def save_as_bed(self, df):
+        
+        df.to_csv("%s/%s.BED" % (self.name,self.name), sep="\t", header=False, index=False)    
+    
+    def make_bed(self):
+        df = pd.read_csv(self.refseq, delimiter="\t")
+        all_genes = pd.DataFrame()
+        for g in self.genes:
+            all_genes = pd.concat([all_genes, df.loc[df['name2'] == g]])
+            if len(df.loc[df['name2'] == g]) == 0:
+                print "Gene %s is not found in Refseq Select, consider adding manually" % (g)
+        self.save_as_bed(self.format_to_bed(self.explode_df(all_genes)))
+
 
 if __name__ =="__main__":
+    
+    # Argument parsing
     parser = argparse.ArgumentParser(description='Takes a file with gene names as inputm and queries each name against genenames.org, to check if the genename is present', epilog='')
     parser.add_argument('-g','--genelist', help='Input file', required=True)
-    #parser.add_argument('-v', '--vcf', help='Input vcf from sequencing', required=True)
+    parser.add_argument('-n','--name', help='Name of panel', required=True)
     args = parser.parse_args()
+    
+    # Init main
     g = Main_method()
     
-    # Duplicates:
+    # Create folders
+    os.makedirs(g.name)
+    
+    # find Duplicates:
     if len(g.duplicates) != 0:
         print "Duplicates are present in list: %s" % (','.join(g.duplicates))
         print "Consider removing them before moving on."
-    # Stats:
-    print "There are %s genes in the genefile." % (g.genecount)
-    print "\n"
-    #g.run_query("GJB1111")
-    #g.get_bed("1017")
-    print g.limit_query()
     
-    # else:
-    #     output_data = converter.intersect()
-    #     print('Intersects the data with Bedtools\n')
-    #     print('.......')
-    #     converter.save_file(output_data)
-    #     print('Converts output files to the correct input format for annovar.')
-    #     print('.......')
-    #     converter.make_annovar_file()
-    #     print('Minor adjustment and combination of files.')
-    #     print('.......')
-    #     converter.refine_annovar_file()
-    #     converter.run_annovar()
-    #     converter.cleanup()
+    # Number of genes
+    print "There are %s genes in the genefile." % (g.genecount)
+    formatted_genes = g.limit_query()
+    print "There are %s genes in the output file" % (len(formatted_genes))
+    # Write to file
+    with open("%s/%s.genetikkportalimport.txt" % (g.name, g.name),'wb') as out:
+        csv_out=csv.writer(out, delimiter=";")
+        csv_out.writerow(["HGNC_symbol","HGNC_id"])
+        csv_out.writerows(formatted_genes)
+    # Make bedfiles
+    print "Making bedfiles:"
+    g.make_bed()
+    print "Done"
+
+
+
+
+
+
+
+# Run like: 
+# python panel_builder.py -g testfiles/genepanels/Schwan_v2_210121.txt -n Schwan_v2_210121
