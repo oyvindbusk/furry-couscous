@@ -138,8 +138,15 @@ x[x.chrom.str.join(' ').str.contains('M')]
         '''
         listOfTuples = []
         for index, row in df[df["exonCount"] > 1 ].iterrows(): #skipping genes with only 1 exon
-            for c, (i,j) in enumerate(zip(row['exonStarts'].split(',')[:-1], row['exonEnds'].split(',')[:-1])):
-                listOfTuples.append(tuple(row[0:2]) + (row[2], ) + tuple(row[3:8]) + (row[8], i , j) + (row[11], row[12]+'_E' + str(c + 1)) + tuple(row[13:15])+ (row[15].split(',')[c],))
+            if row['strand'] == "+":
+                for c, (i,j) in enumerate(zip(row['exonStarts'].split(',')[:-1], row['exonEnds'].split(',')[:-1])):
+                    listOfTuples.append(tuple(row[0:2]) + (row[2], ) + tuple(row[3:8]) + (row[8], i , j) + (row[11], row[12]+'_E' + str(c + 1)) + tuple(row[13:15])+ (row[15].split(',')[c],))
+            else:
+                exoncount = row[8]
+                for c, (i,j) in enumerate(zip(row['exonStarts'].split(',')[:-1], row['exonEnds'].split(',')[:-1])):
+                    listOfTuples.append(tuple(row[0:2]) + (row[2], ) + tuple(row[3:8]) + (row[8], i , j) + (row[11], row[12]+'_E' + str(exoncount - (c))) + tuple(row[13:15])+ (row[15].split(',')[c],))
+
+
         # Adding genes with one exon:
         df[["exonStarts", "exonEnds","exonFrames"]] = df.loc[:,["exonStarts", "exonEnds","exonFrames"]].replace(",$","",regex=True) # remove trailing comma
         listOfTuples.append(df[df["exonCount"] == 1].to_records(index=False)[0])
