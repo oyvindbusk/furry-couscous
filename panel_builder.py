@@ -149,7 +149,8 @@ x[x.chrom.str.join(' ').str.contains('M')]
 
         # Adding genes with one exon:
         df[["exonStarts", "exonEnds","exonFrames"]] = df.loc[:,["exonStarts", "exonEnds","exonFrames"]].replace(",$","",regex=True) # remove trailing comma
-        listOfTuples.append(df[df["exonCount"] == 1].to_records(index=False)[0])
+        if len(df[df["exonCount"] == 1]) != 0:
+            listOfTuples.append(df[df["exonCount"] == 1].to_records(index=False)[0])
 
         result_df = pd.DataFrame(listOfTuples, columns = df.columns)
         # Remove those exons with exonframes -1 (complete UTR) unless the entire gene is UTR (e.g. SNORD118, TERC)
