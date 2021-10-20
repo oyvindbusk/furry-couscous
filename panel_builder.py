@@ -151,11 +151,14 @@ x[x.chrom.str.join(' ').str.contains('M')]
         df[["exonStarts", "exonEnds","exonFrames"]] = df.loc[:,["exonStarts", "exonEnds","exonFrames"]].replace(",$","",regex=True) # remove trailing comma
         if len(df[df["exonCount"] == 1]) != 0:
             listOfTuples.append(df[df["exonCount"] == 1].to_records(index=False)[0])
-
-        result_df = pd.DataFrame(listOfTuples, columns = df.columns)
+        
+        if len(listOfTuples) == 1: # spesialtilfelle hvis det bare er ett gen
+            result_df = pd.DataFrame(listOfTuples[0], columns = df.columns)
+        else:
+            result_df = pd.DataFrame(listOfTuples, columns = df.columns)
         # Remove those exons with exonframes -1 (complete UTR) unless the entire gene is UTR (e.g. SNORD118, TERC)
         result_df = result_df[(result_df.exonFrames != "-1") | (result_df.exonCount == 1)]
-
+        
         # Remove parts of the exons that are not part of CDS
         # make a mask of all rows where the exonstarts are not within interval cdsstart-cdsend
         startmask = ((~result_df.exonStarts.astype(int).between(result_df.cdsStart,result_df.cdsEnd)) & ((result_df.exonCount.astype(int) != 1) & (result_df.exonFrames != "-1")))
